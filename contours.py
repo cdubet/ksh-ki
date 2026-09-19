@@ -53,7 +53,7 @@ def CannyThreshold(low_threshold : float|int,
 def CannyImage(image_name : str)->bool:
     image_name_path=Path(image_name)
     if not Path.exists(image_name_path):
-        logger.error(f"file does not exist [{limage_name}]")
+        logger.error(f"file does not exist [{image_name}]")
         return False
 
     return CannyThreshold(low_threshold=low_threshold,

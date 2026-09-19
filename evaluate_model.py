@@ -8,7 +8,11 @@ import numpy as np
 import tensorflow as tf
 from keras.models import load_model
 from PIL import Image, ImageOps
+import cv2 as cv
+import logging
+low_threshold=0
 
+logger = logging.getLogger(__name__)
 
 def workaround_old_model(model_path: str) -> None:
     """Remove legacy unsupported 'groups' config from some Teachable Machine exports."""
@@ -57,6 +61,49 @@ def prepare_image(image_path: Path, width: int, height: int, use_teachable_machi
     data = np.expand_dims(image_array, axis=0)
     return data
 
+def CannyThreshold(low_threshold : float|int,
+                   image_name : str,
+                   show_image : bool = False,
+                   save_image : bool = False,
+                   saved_image_name : Path = None) -> bool :
+
+    src = cv.imread(cv.samples.findFile(image_name))
+    if src is None:
+        logger.error(f"Could not open or find the image [{image_name}]")
+        return False
+
+    #TODO Use cv2.GaussianBlur() to reduce noise. This can help improve edge detection. Check out our guide on Python OpenCV cv2.GaussianBlur() for more details.
+    src_gray = cv.cvtColor(src, cv.COLOR_BGR2GRAY)
+    img_blur = cv.blur(src_gray, (3,3))
+    ratio = 3
+    kernel_size = 3
+
+    detected_edges = cv.Canny(img_blur, low_threshold, low_threshold*ratio, kernel_size)
+    mask = detected_edges != 0
+    dst = src * (mask[:,:,None].astype(src.dtype))
+
+    if show_image:
+        window_name = 'Edge Map'
+        cv.namedWindow(window_name)
+        cv.imshow(window_name, dst)
+        cv.waitKey()
+    # Save the result
+    if save_image:
+        return cv.imwrite(saved_image_name, dst)
+
+    return True
+
+def CannyImage(image_name : str)->str:
+    image_name_path=Path(image_name)
+    if not Path.exists(image_name_path):
+        logger.error(f"file does not exist [{image_name}]")
+        return None
+
+    CannyThreshold(low_threshold=low_threshold,
+                   image_name=image_name,
+                   save_image=True,
+                    saved_image_name="test_ki.jpg")
+    return "test_ki.jpg"
 
 def normalize_root_dir_value(raw_root: str) -> str:
     return raw_root.strip().strip('"').strip("'")
@@ -66,7 +113,8 @@ def evaluate_model(config_path: str,
                    model_path: str, 
                    labels_path: str, 
                    output_path: str ,
-                   teachable_machine: bool ) -> str:
+                   teachable_machine: bool ,
+                   use_canny :bool ) -> str:
     config_file = Path(config_path)
     if not config_file.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
@@ -122,6 +170,9 @@ def evaluate_model(config_path: str,
         if not image_path.exists():
             image_path = config_file.parent / file_name
 
+        if use_canny:
+            imagePath = Path(CannyImage(str(image_path)))
+
         if not image_path.exists():
             ET.SubElement(
                 fail_node,
@@ -159,7 +210,7 @@ def evaluate_model(config_path: str,
             "confidence_score": f"{confidence:.2f}",
         }
 
-        if got == expected:
+        if got.casefold() == expected.casefold():
             ET.SubElement(success_node, "test_item", attrs)
             passed += 1
         else:
@@ -210,7 +261,8 @@ def main() -> None:
         help="Path to labels file.",
     )
     parser.add_argument('--teachable_machine', action='store_true', help='use teachable machine model')
-    parser.add_argument('--tensorflow', action='store_true', help='use teachable machine model')
+    parser.add_argument('--tensorflow', action='store_true', help='use tensorflow model')
+    parser.add_argument('--canny', action='store_true', help='use opencv canny before processing machine model')
 
     parser.add_argument(
         "-output",
@@ -225,7 +277,8 @@ def main() -> None:
         model_path=args.model,
         labels_path=args.labels,
         output_path=args.output,
-        teachable_machine=args.teachable_machine
+        teachable_machine=args.teachable_machine,
+        use_canny=args.canny,
     )
 
     print(f"Test result written to: {output_file}")
